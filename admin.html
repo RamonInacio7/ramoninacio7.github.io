@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Painel Meu Pet</title>
+  <link rel="icon" href="icone.png">
+  <link rel="stylesheet" href="estilo.css">
+  <style>
+    main { max-width: 1100px; }
+    .topo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .topo h1 { font-size: 1.6rem; margin: 0; flex: 1; }
+    button { font: inherit; border: 0; border-radius: 999px; padding: 8px 16px; cursor: pointer; background: var(--verde); color: #fff; font-weight: 600; }
+    button.sec { background: transparent; color: var(--verde); border: 1px solid var(--borda); }
+    button.perigo { background: #BA1A1A; }
+    button:disabled { opacity: .5; cursor: default; }
+    .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 20px 0; }
+    .numero { background: var(--cartao); border: 1px solid var(--borda); border-radius: 16px; padding: 14px; }
+    .numero span { color: var(--suave); font-size: .85rem; }
+    .numero b { display: block; font-size: 1.8rem; color: var(--verde); }
+    input[type=search] { width: 100%; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--borda); background: var(--cartao); color: var(--texto); font: inherit; margin-bottom: 12px; }
+    .tabela { overflow-x: auto; background: var(--cartao); border: 1px solid var(--borda); border-radius: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--borda); white-space: nowrap; }
+    th { color: var(--suave); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+    td img { width: 32px; height: 32px; border-radius: 50%; vertical-align: middle; margin-right: 8px; object-fit: cover; }
+    .tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; }
+    .ok { background: #B8EFE3; color: #00201B; }
+    .bloq { background: #FFDAD6; color: #410002; }
+    #aviso { color: var(--suave); }
+  </style>
+</head>
+<body>
+<main>
+  <div class="topo">
+    <img src="icone.png" alt="" width="48" height="48">
+    <h1>Painel Meu Pet</h1>
+    <span id="quem"></span>
+    <button id="entrar">Entrar com Google</button>
+    <button id="sair" class="sec" hidden>Sair</button>
+  </div>
+  <p id="aviso">Entre com a conta de administrador para ver os usuários.</p>
+
+  <section id="conteudo" hidden>
+    <div class="numeros">
+      <div class="numero"><span>Contas</span><b id="nTotal">–</b></div>
+      <div class="numero"><span>Ativos hoje</span><b id="nHoje">–</b></div>
+      <div class="numero"><span>Ativos em 7 dias</span><b id="n7">–</b></div>
+      <div class="numero"><span>Ativos em 30 dias</span><b id="n30">–</b></div>
+      <div class="numero"><span>Novos em 7 dias</span><b id="nNovos">–</b></div>
+      <div class="numero"><span>Bloqueados</span><b id="nBloq">–</b></div>
+    </div>
+    <input type="search" id="busca" placeholder="Buscar por nome, e-mail ou aparelho">
+    <div class="tabela">
+      <table>
+        <thead><tr>
+          <th>Usuário</th><th>E-mail</th><th>Cadastro</th><th>Último acesso</th>
+          <th>Versão</th><th>Aparelho</th><th>Pets</th><th>Família</th><th>Situação</th><th></th>
+        </tr></thead>
+        <tbody id="linhas"></tbody>
+      </table>
+    </div>
+    <p style="margin-top:12px"><button class="sec" id="recarregar">Atualizar lista</button></p>
+  </section>
+</main>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, collection, getDocs, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // Configuração do app Web "Painel" (Firebase Console › Configurações do projeto › Seus apps)
+  const firebaseConfig = {
+    apiKey: "AIzaSyA3zinKPcWpvxg5TMg8gkIRXoMHFJPNXUQ",
+    authDomain: "meu-pet-514014.firebaseapp.com",
+    projectId: "meu-pet-514014",
+    storageBucket: "meu-pet-514014.firebasestorage.app",
+    messagingSenderId: "299407346480",
+    appId: "1:299407346480:web:4678f7cea1f149128956f5",
+    measurementId: "G-52D36NCCX1"
+  };
+  const ADMIN = "ramonsinacio@gmail.com";
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const $ = (id) => document.getElementById(id);
+  let usuarios = [];
+
+  const DIA = 24 * 60 * 60 * 1000;
+  const fmt = (ms) => ms ? new Date(ms).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "–";
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  $("entrar").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => alert("Erro ao entrar: " + e.message));
+  $("sair").onclick = () => signOut(auth);
+  $("recarregar").onclick = () => carregar();
+  $("busca").oninput = () => desenhar();
+
+  onAuthStateChanged(auth, (user) => {
+    $("entrar").hidden = !!user;
+    $("sair").hidden = !user;
+    $("quem").textContent = user ? user.email : "";
+    if (!user) { $("conteudo").hidden = true; $("aviso").textContent = "Entre com a conta de administrador para ver os usuários."; return; }
+    if (user.email !== ADMIN) { $("conteudo").hidden = true; $("aviso").textContent = "Esta conta não é de administrador."; return; }
+    $("aviso").textContent = "";
+    $("conteudo").hidden = false;
+    carregar();
+  });
+
+  async function carregar() {
+    $("aviso").textContent = "Carregando…";
+    try {
+      const snap = await getDocs(collection(db, "usuarios"));
+      usuarios = snap.docs.map((d) => ({ uid: d.id, ...d.data() }))
+        .sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0));
+      $("aviso").textContent = "";
+      desenhar();
+    } catch (e) {
+      $("aviso").textContent = "Erro ao carregar: " + e.message + " (confira as regras do Firestore)";
+    }
+  }
+
+  function desenhar() {
+    const agora = Date.now();
+    const ativos = (dias) => usuarios.filter((u) => (u.ultimoAcesso || 0) > agora - dias * DIA).length;
+    $("nTotal").textContent = usuarios.length;
+    $("nHoje").textContent = ativos(1);
+    $("n7").textContent = ativos(7);
+    $("n30").textContent = ativos(30);
+    $("nNovos").textContent = usuarios.filter((u) => (u.criadoEm || 0) > agora - 7 * DIA).length;
+    $("nBloq").textContent = usuarios.filter((u) => u.bloqueado).length;
+
+    const termo = $("busca").value.trim().toLowerCase();
+    const lista = usuarios.filter((u) => !termo ||
+      [u.nome, u.email, u.aparelho].some((v) => String(v || "").toLowerCase().includes(termo)));
+
+    $("linhas").innerHTML = lista.map((u) => `
+      <tr>
+        <td>${u.foto ? `<img src="${esc(u.foto)}" alt="" referrerpolicy="no-referrer">` : ""}${esc(u.nome || "–")}</td>
+        <td>${esc(u.email)}</td>
+        <td>${fmt(u.criadoEm)}</td>
+        <td>${fmt(u.ultimoAcesso)}</td>
+        <td>${esc(u.versaoApp || "–")}</td>
+        <td>${esc(u.aparelho || "–")}${u.android ? " · Android " + esc(u.android) : ""}</td>
+        <td>${u.qtdPets ?? "–"}</td>
+        <td>${u.temFamilia ? "Sim" : "–"}</td>
+        <td><span class="tag ${u.bloqueado ? "bloq" : "ok"}">${u.bloqueado ? "Bloqueado" : "Ativo"}</span></td>
+        <td><button class="${u.bloqueado ? "sec" : "perigo"}" data-uid="${esc(u.uid)}" data-bloq="${u.bloqueado ? "1" : "0"}">
+          ${u.bloqueado ? "Desbloquear" : "Bloquear"}</button></td>
+      </tr>`).join("") || `<tr><td colspan="10">Nenhum usuário encontrado.</td></tr>`;
+
+    document.querySelectorAll("button[data-uid]").forEach((b) => b.onclick = () => alternar(b.dataset.uid, b.dataset.bloq === "1"));
+  }
+
+  async function alternar(uid, bloqueadoAgora) {
+    const u = usuarios.find((x) => x.uid === uid);
+    const acao = bloqueadoAgora ? "desbloquear" : "bloquear";
+    if (!confirm(`Deseja ${acao} ${u?.nome || u?.email || "este usuário"}?`)) return;
+    try {
+      await updateDoc(doc(db, "usuarios", uid), { bloqueado: !bloqueadoAgora });
+      u.bloqueado = !bloqueadoAgora;
+      desenhar();
+    } catch (e) {
+      alert("Não foi possível alterar: " + e.message);
+    }
+  }
+</script>
+</body>
+</html>
