@@ -28,6 +28,9 @@
     .tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; }
     .ok { background: #B8EFE3; color: #00201B; }
     .bloq { background: #FFDAD6; color: #410002; }
+    .teste { background: #FFE08A; color: #261A00; }
+    .lib { background: #D6E3FF; color: #001B3E; }
+    td button + button { margin-top: 4px; }
     #aviso { color: var(--suave); }
   </style>
 </head>
@@ -49,6 +52,9 @@
       <div class="numero"><span>Ativos em 7 dias</span><b id="n7">–</b></div>
       <div class="numero"><span>Ativos em 30 dias</span><b id="n30">–</b></div>
       <div class="numero"><span>Novos em 7 dias</span><b id="nNovos">–</b></div>
+      <div class="numero"><span>Assinantes</span><b id="nAssin">–</b></div>
+      <div class="numero"><span>Em teste</span><b id="nTeste">–</b></div>
+      <div class="numero"><span>Teste expirado</span><b id="nExp">–</b></div>
       <div class="numero"><span>Bloqueados</span><b id="nBloq">–</b></div>
     </div>
     <input type="search" id="busca" placeholder="Buscar por nome, e-mail ou aparelho">
@@ -56,7 +62,7 @@
       <table>
         <thead><tr>
           <th>Usuário</th><th>E-mail</th><th>Cadastro</th><th>Último acesso</th>
-          <th>Versão</th><th>Aparelho</th><th>Pets</th><th>Família</th><th>Situação</th><th></th>
+          <th>Versão</th><th>Aparelho</th><th>Pets</th><th>Família</th><th>Plano</th><th>Situação</th><th></th>
         </tr></thead>
         <tbody id="linhas"></tbody>
       </table>
@@ -121,6 +127,16 @@
     }
   }
 
+  const DIAS_TESTE = 7;
+  /** Plano: assinante (Google Play), liberado (pelo admin), teste grátis ou expirado. */
+  function plano(u) {
+    if (u.assinante) return { classe: "ok", texto: "Assinante", chave: "assin" };
+    if (u.acessoLiberado) return { classe: "lib", texto: "Liberado", chave: "lib" };
+    const restam = Math.ceil(((u.criadoEm || Date.now()) + DIAS_TESTE * DIA - Date.now()) / DIA);
+    if (restam > 0) return { classe: "teste", texto: `Teste · ${restam} dia(s)`, chave: "teste" };
+    return { classe: "bloq", texto: "Expirado", chave: "exp" };
+  }
+
   function desenhar() {
     const agora = Date.now();
     const ativos = (dias) => usuarios.filter((u) => (u.ultimoAcesso || 0) > agora - dias * DIA).length;
@@ -130,6 +146,9 @@
     $("n30").textContent = ativos(30);
     $("nNovos").textContent = usuarios.filter((u) => (u.criadoEm || 0) > agora - 7 * DIA).length;
     $("nBloq").textContent = usuarios.filter((u) => u.bloqueado).length;
+    $("nAssin").textContent = usuarios.filter((u) => plano(u).chave === "assin").length;
+    $("nTeste").textContent = usuarios.filter((u) => plano(u).chave === "teste").length;
+    $("nExp").textContent = usuarios.filter((u) => plano(u).chave === "exp").length;
 
     const termo = $("busca").value.trim().toLowerCase();
     const lista = usuarios.filter((u) => !termo ||
@@ -145,12 +164,30 @@
         <td>${esc(u.aparelho || "–")}${u.android ? " · Android " + esc(u.android) : ""}</td>
         <td>${u.qtdPets ?? "–"}</td>
         <td>${u.temFamilia ? "Sim" : "–"}</td>
+        <td><span class="tag ${plano(u).classe}">${plano(u).texto}</span></td>
         <td><span class="tag ${u.bloqueado ? "bloq" : "ok"}">${u.bloqueado ? "Bloqueado" : "Ativo"}</span></td>
         <td><button class="${u.bloqueado ? "sec" : "perigo"}" data-uid="${esc(u.uid)}" data-bloq="${u.bloqueado ? "1" : "0"}">
-          ${u.bloqueado ? "Desbloquear" : "Bloquear"}</button></td>
-      </tr>`).join("") || `<tr><td colspan="10">Nenhum usuário encontrado.</td></tr>`;
+          ${u.bloqueado ? "Desbloquear" : "Bloquear"}</button><br>
+          <button class="sec" data-lib="${esc(u.uid)}" data-ativo="${u.acessoLiberado ? "1" : "0"}">
+          ${u.acessoLiberado ? "Remover liberação" : "Liberar acesso"}</button></td>
+      </tr>`).join("") || `<tr><td colspan="11">Nenhum usuário encontrado.</td></tr>`;
 
     document.querySelectorAll("button[data-uid]").forEach((b) => b.onclick = () => alternar(b.dataset.uid, b.dataset.bloq === "1"));
+    document.querySelectorAll("button[data-lib]").forEach((b) => b.onclick = () => liberar(b.dataset.lib, b.dataset.ativo === "1"));
+  }
+
+  /** Libera (ou remove) o uso completo sem assinatura — para amigos, testadores etc. */
+  async function liberar(uid, liberadoAgora) {
+    const u = usuarios.find((x) => x.uid === uid);
+    const acao = liberadoAgora ? "remover a liberação de" : "liberar o acesso completo (sem pagar) para";
+    if (!confirm(`Deseja ${acao} ${u?.nome || u?.email || "este usuário"}?`)) return;
+    try {
+      await updateDoc(doc(db, "usuarios", uid), { acessoLiberado: !liberadoAgora });
+      u.acessoLiberado = !liberadoAgora;
+      desenhar();
+    } catch (e) {
+      alert("Não foi possível alterar: " + e.message);
+    }
   }
 
   async function alternar(uid, bloqueadoAgora) {
