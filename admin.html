@@ -96,6 +96,9 @@
 
   const DIA = 24 * 60 * 60 * 1000;
   const fmt = (ms) => ms ? new Date(ms).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "–";
+  // Só fotos de perfil do Google (https://...googleusercontent.com)
+  const fotoSegura = (url) => typeof url === "string" && /^https:\/\/[a-z0-9.-]+\.googleusercontent\.com\//i.test(url);
+  // Tudo que vem do cadastro do usuário é escapado antes de ir para a página (evita injeção de código no painel)
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   $("entrar").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => alert("Erro ao entrar: " + e.message));
@@ -156,13 +159,13 @@
 
     $("linhas").innerHTML = lista.map((u) => `
       <tr>
-        <td>${u.foto ? `<img src="${esc(u.foto)}" alt="" referrerpolicy="no-referrer">` : ""}${esc(u.nome || "–")}</td>
+        <td>${fotoSegura(u.foto) ? `<img src="${esc(u.foto)}" alt="" referrerpolicy="no-referrer">` : ""}${esc(u.nome || "–")}</td>
         <td>${esc(u.email)}</td>
         <td>${fmt(u.criadoEm)}</td>
         <td>${fmt(u.ultimoAcesso)}</td>
         <td>${esc(u.versaoApp || "–")}</td>
         <td>${esc(u.aparelho || "–")}${u.android ? " · Android " + esc(u.android) : ""}</td>
-        <td>${u.qtdPets ?? "–"}</td>
+        <td>${Number.isFinite(u.qtdPets) ? u.qtdPets : "–"}</td>
         <td>${u.temFamilia ? "Sim" : "–"}</td>
         <td><span class="tag ${plano(u).classe}">${plano(u).texto}</span></td>
         <td><span class="tag ${u.bloqueado ? "bloq" : "ok"}">${u.bloqueado ? "Bloqueado" : "Ativo"}</span></td>
